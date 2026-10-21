@@ -3,6 +3,7 @@
 **Purpose:** Understand where and how card fraud occurs, build a model that flags it, and translate the result into decisions a bank (or a supervisor) can act on.
 **Data:** ULB / Worldline "Credit Card Fraud Detection": 284,807 transactions by European cardholders over 48 hours (September 2013). Columns: `Time`, `V1`-`V28` (anonymised PCA components), `Amount`, `Class` (1 = fraud).
 **Code:** `fraud_pipeline.py`. Every number below comes from `outputs/results.json`.
+**Reproducibility note:** numbers were produced with pandas 3.0.6, numpy 2.5.4, scikit-learn 1.9.1, scipy 1.18.1, matplotlib 3.11.2 (see `requirements-tested.txt`). Different library versions can shift the gradient-boosting results slightly (for example, test PR-AUC moved between 0.785 and 0.798 across versions), which is another reason not to over-read small differences between models.
 
 ---
 
@@ -59,7 +60,7 @@ A model outputs a risk score from 0 to 1; someone must decide the cut-off. I use
 
 > Net savings = (value of fraud caught) − (review cost × number of alerts)
 
-with an **assumed** review cost of 5 currency units per alert (editable in `CONFIG`). The chosen threshold (0.953) was then applied unchanged to the test set.
+with an **assumed** review cost of 5 currency units per alert (editable in `CONFIG`). The chosen threshold (0.872) was then applied unchanged to the test set.
 
 ### Step 7: Test evaluation + uncertainty
 Bootstrap (300 resamples of the test set) gives 95% confidence intervals.
@@ -78,22 +79,22 @@ Alert-budget table (what if analysts can only review the top X%?), permutation f
 | Baseline | 0.001 | n/a | 0.500 |
 | Logistic Regression | 0.745 | 0.62 - 0.85 | 0.981 |
 | Random Forest | 0.814 | 0.72 - 0.89 | 0.937 |
-| **Gradient Boosting (selected)** | 0.798 | 0.71 - 0.88 | 0.984 |
+| **Gradient Boosting (selected)** | 0.785 | 0.69 - 0.87 | 0.977 |
 
-**Honest reading:** Gradient Boosting was chosen because it had the best *validation* PR-AUC (0.792). On the test set, Random Forest scored slightly higher, but the confidence intervals overlap heavily. **The three models cannot be statistically separated with 74 test frauds.** Claiming "Gradient Boosting is best" would be overclaiming. What is clear is that all three are hundreds of times better than the baseline.
+**Honest reading:** Gradient Boosting was chosen because it had the best *validation* PR-AUC (0.770). On the test set, Random Forest scored slightly higher, but the confidence intervals overlap heavily. **The three models cannot be statistically separated with 74 test frauds.** Claiming "Gradient Boosting is best" would be overclaiming. What is clear is that all three are hundreds of times better than the baseline.
 
-### 3.2 Operating point on the test set (threshold = 0.953)
+### 3.2 Operating point on the test set (threshold = 0.872)
 
 | Metric | Value |
 |---|---|
 | Frauds caught / missed | 54 / 20 |
-| False alarms | 8 (out of 56,672 legitimate transactions) |
-| Precision | 87.1% (95% CI 79 - 94%) |
+| False alarms | 9 (out of 56,672 legitimate transactions) |
+| Precision | 85.7% (95% CI 77 - 94%) |
 | Recall | 73.0% (95% CI 63 - 83%) |
-| Alerts per 10,000 transactions | 10.9 |
+| Alerts per 10,000 transactions | 11.1 |
 | Fraud value caught | 4,841 of 7,728 (**62.6%**) |
-| Review cost | 310 |
-| Net savings | 4,531 over the 7.7-hour test window |
+| Review cost | 315 |
+| Net savings | 4,526 over the 7.7-hour test window |
 
 ---
 
@@ -109,19 +110,19 @@ The rate climbs again for large transactions (28 per 10,000 at 200-1,000 and 31 
 In the first six hours of the daily cycle, fraud is 48 per 10,000 vs 11-17 in other blocks (chi-square = 162, p < 1e-30). This holds on **both days** (44.7 and 52.0 per 10,000), so it is not a single burst. *Caveat: the dataset does not disclose the start clock-time, so "hour" means hours since the data began, not local time.* By contrast, the spike at hour 11 is **one-day only** (43 frauds on day 1 vs 10 on day 2), which looks like an isolated attack burst, not a pattern. Only two days of data exist, so time-of-day findings are indicative, not conclusive.
 
 **Insight 4: A small review team captures most of the benefit.**
-Reviewing only the top **0.1%** of transactions by risk (57 alerts in the test window) catches 69% of frauds at 89% precision and protects 61% of fraud value. Going to 1% review lifts recall to 88%, and going from 1% to 2% adds nothing. There are sharply diminishing returns, which is useful for staffing and alert-capacity planning.
+Reviewing only the top **0.1%** of transactions by risk (57 alerts in the test window) catches 69% of frauds at 89% precision and protects 61% of fraud value. Going to 1% review lifts recall to 88%, but doubling the workload again to 2% adds only one more fraud (recall 89%, fraud value protected 78% to 82%) while precision falls from 11.5% to 5.8%. There are sharply diminishing returns, which is useful for staffing and alert-capacity planning.
 
 **Insight 5: Counting frauds and counting rupees tell different stories.**
-Recall by count is 73%, but by value it is 62.6%. The 28 transactions at the very top of the risk ranking are all genuine frauds (100% precision) yet represent only 9% of fraud value, because they are mostly small card-testing transactions. Meanwhile, **the largest missed fraud (1,097) received a risk score of 0.0005**, so the model did not even suspect it. A supervisor judging a bank's fraud system on "number of frauds detected" alone could be misled; **value-weighted detection should be reported alongside count-based detection.**
+Recall by count is 73%, but by value it is 62.6%. The 28 transactions at the very top of the risk ranking are almost all genuine frauds (26 of 28, 93% precision) yet carry only 16% of fraud value, so they are mostly low-value transactions. Meanwhile, **the largest missed fraud (1,097) received a risk score of 0.0004**, so the model did not even suspect it. A supervisor judging a bank's fraud system on "number of frauds detected" alone could be misled; **value-weighted detection should be reported alongside count-based detection.**
 
 **Insight 6: The review-cost assumption matters.**
 The median caught fraud is only 1.80, below the assumed 5-unit review cost. So the cost model treats many alerts as loss-making. In practice, blocking a test transaction may prevent a much larger later fraud, which this dataset cannot show. The real value of catching small frauds is therefore **understated**, and the 5-unit cost is an assumption to be replaced with a real figure.
 
 **Insight 7: Detection rests on a few signals.**
-Permutation importance is dominated by V14 (a drop of 0.142 in PR-AUC when shuffled), then V4 (0.054), then V12, V17 and V10 (about 0.01 each). Concentration in a few features means that if fraudsters change behaviour on those signals, performance could fall quickly, which is a case for ongoing monitoring.
+Permutation importance is dominated by V14 (a drop of 0.186 in PR-AUC when shuffled), then V4 (0.055), then V10 and V17 (about 0.015 each). Concentration in a few features means that if fraudsters change behaviour on those signals, performance could fall quickly, which is a case for ongoing monitoring.
 
 **Insight 8: Monitoring.**
-The score distribution was stable between validation and test (PSI = 0.012, below the 0.1 "stable" threshold). Many individual features showed PSI > 0.1, but the extreme PSI on `hour_sin/hour_cos` (about 5) is an **artefact**: the training window covers hours 0-33, while the test window covers only evening-to-night hours. This illustrates why drift alerts need interpretation before action.
+The score distribution was stable between validation and test (PSI = 0.023, below the 0.1 "stable" threshold). Many individual features showed PSI > 0.1, but the extreme PSI on `hour_sin/hour_cos` (about 5) is an **artefact**: the training window covers hours 0-33, while the test window covers only evening-to-night hours. This illustrates why drift alerts need interpretation before action.
 
 ---
 
@@ -141,8 +142,8 @@ The score distribution was stable between validation and test (PSI = 0.012, belo
 
 - Built an end-to-end fraud analytics pipeline on 283,726 card transactions (0.17% fraud): schema validation, deduplication, statistical EDA, and a leakage-free chronological train/validation/test design.
 - Used Mann-Whitney, Fisher's exact and chi-square tests to show that fraud concentrates in micro-transactions (OR = 4.75) and night hours (about 3-4x baseline rate).
-- Trained and compared logistic regression, random forest and gradient boosting with class weighting; evaluated with PR-AUC and bootstrap 95% CIs (best test PR-AUC about 0.80 vs 0.001 baseline).
-- Selected the alert threshold via a cost-benefit model; at the chosen point, caught 73% of frauds at 87% precision, and showed that reviewing 0.1% of transactions captures 69% of fraud.
+- Trained and compared logistic regression, random forest and gradient boosting with class weighting; evaluated with PR-AUC and bootstrap 95% CIs (test PR-AUC about 0.79-0.81 vs 0.001 baseline).
+- Selected the alert threshold via a cost-benefit model; at the chosen point, caught 73% of frauds at 86% precision, and showed that reviewing 0.1% of transactions captures 69% of fraud.
 - Identified a gap between count-based recall (73%) and value-based recall (63%), and added PSI drift monitoring.
 
 ---
