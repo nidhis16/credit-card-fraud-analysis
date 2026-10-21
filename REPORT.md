@@ -167,7 +167,7 @@ Selection was made on validation data only, to avoid tuning to the test set. The
 **What does the PSI tell you?**
 It measures how much a variable's distribution has shifted between two periods. Under 0.1 is stable, 0.1-0.25 is moderate, and above 0.25 is major. I used it on the model score and on features.
 
-**How would an RBI/DSIM perspective use this?**
+**How would a regulator or supervisor use this?**
 Fraud reporting is a supervisory data problem. The same techniques apply to analysing reported fraud returns, comparing banks, spotting unusual reporting patterns, and recommending value-weighted metrics.
 
 **What would you do next with more data?**
